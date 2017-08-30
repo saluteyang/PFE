@@ -13,26 +13,26 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
                           Spread.Type.Off = NA){
   
   # input specific to the application (comment out in prod) ####
-  # Forward.Volume = rep(100, 192)
-  # Vanilla.Volume = rep(0, 192)
-  # Vanilla.Strike = rep(0, 192)
-  # Vanilla.Type = rep("CALL", 192)
-  # Spread.Strike.On = rep(0, 64)
-  # Spread.Strike.Off = rep(0, 64)
-  # Spread.VOM.On = rep(0, 64)
-  # Spread.VOM.Off = rep(0, 64)
-  # Spread.Volume.On = rep(0, 64)
-  # Spread.Volume.Off = rep(0, 64)
-  # Spread.HR.On = rep(10, 64)
-  # Spread.HR.Off = rep(10, 64)
-  # Spread.Type.On = rep("CALL", 64)
-  # Spread.Type.Off = rep("CALL", 64)
-  # 
-  # nsims <- 100
-  # curve.date.begin <- '2017-06-01'
-  # curve.date.end <- '2017-07-31'
-  # end_date <- '2022-12-31'
-  # marketcomponentstr <- 'ERCOT-ZONE H'
+  Forward.Volume = rep(100, 48)
+  Vanilla.Volume = rep(0, 48)
+  Vanilla.Strike = rep(0, 48)
+  Vanilla.Type = rep("CALL", 48)
+  Spread.Strike.On = rep(0, 16)
+  Spread.Strike.Off = rep(0, 16)
+  Spread.VOM.On = rep(0, 16)
+  Spread.VOM.Off = rep(0, 16)
+  Spread.Volume.On = rep(0, 16)
+  Spread.Volume.Off = rep(0, 16)
+  Spread.HR.On = rep(10, 16)
+  Spread.HR.Off = rep(10, 16)
+  Spread.Type.On = rep("CALL", 16)
+  Spread.Type.Off = rep("CALL", 16)
+
+  nsims <- 100
+  curve.date.begin <- '2017-06-01'
+  curve.date.end <- '2017-08-29'
+  end_date <- '2018-12-31'
+  marketcomponentstr <- 'ERCOT-ZONE H'
   
   
   start_date <- promptmonth(curve.date.end) # this currently has to be the prompt month implied by curve.date.end
@@ -367,7 +367,26 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
                            "PFE" = PFE.Exposure.Mtm, "Potential_Collateral" = PFE.Collateral.Mtm,
                            "Expected_Exposure" = ExpValue.Exposure, "Expected_Collateral" = ExpValue.Collateral)
   
-  return(PFEoutput)
+  vol.fwd.out$COMPONENT <- trimws(vol.fwd.out$COMPONENT)
+  vol.fwd.out.pwr <- dcast(filter(vol.fwd.out, COMPONENT != 'NG'), DELMO+COMPONENT~SEGMENT, value.var = 'VOLATILITY')
+  vol.fwd.out.pwr <- rename(vol.fwd.out.pwr, PEAK_POWER_VOL = pk, OFFPEAK_POWER_VOL = op)
+  vol.fwd.out.gas <- dcast(filter(vol.fwd.out, COMPONENT == 'NG'), DELMO+COMPONENT~SEGMENT, value.var = 'VOLATILITY')
+  vol.fwd.out.gas <- rename(vol.fwd.out.gas, GAS_VOL = rtc)
+  curves.comb.out.pwr <- dcast(filter(curves.comb, Component != 'NG' & Date == curve.date.end), 
+                               Delmo+Component~Segment, value.var = 'Price')
+  curves.comb.out.gas <- dcast(filter(curves.comb, Component == 'NG' & Date == curve.date.end),
+                               Delmo+Component~Segment, value.var = 'Price')
+  curves.comb.out.pwr <- rename(curves.comb.out.pwr, PEAK_POWER_PRICE = pkPrice, OFFPEAK_POWER_PRICE = opPrice)
+  curves.comb.out.gas <- rename(curves.comb.out.gas, GAS_PRICE = rtcPrice)
+  
+  pwroutput <- left_join(curves.comb.out.pwr, vol.fwd.out.pwr, by = c('Delmo' = 'DELMO', 'Component' = 'COMPONENT'))
+  gasoutput <- left_join(curves.comb.out.gas, vol.fwd.out.gas, by = c('Delmo' = 'DELMO', 'Component' = 'COMPONENT'))
+  pwroutput$Delmo <- as.character(pwroutput$Delmo) # to avoid renderTable interpreting dates as numbers
+  pwroutput <- select(pwroutput, Delmo, PEAK_POWER_PRICE,PEAK_POWER_VOL,
+                      OFFPEAK_POWER_PRICE, OFFPEAK_POWER_VOL) # re-arrange column order
+  gasoutput$Delmo <- as.character(gasoutput$Delmo)
+  
+  return(list(PFEoutput = PFEoutput, pwroutput = pwroutput, gasoutput = gasoutput))
 }
 
 

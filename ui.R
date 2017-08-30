@@ -141,9 +141,17 @@ ui <- shinyUI(fluidPage(theme = shinytheme("cerulean"),
       
       tabPanel("PFE Plot and Data Table",
                plotlyOutput("pfePlot"),
-               dataTableOutput("pfeTbl"))
+               dataTableOutput("pfeTbl")),
+      tabPanel("Curve Data (Aligne)",
+               tags$h4("Gas Forward Prices and Volatilities"),
+               tableOutput("gasCurveTbl"),
+               hr(),
+               tags$h4("Power Forward Prices and Volatilities"),
+               tableOutput("pwrCurveTbl")
+               )
+      )
       
     )
   )
-  )
+  
 )

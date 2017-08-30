@@ -418,7 +418,7 @@ server <- shinyServer(function(input, output, session) {
     if(input$goButton == 0)
       return()
     
-    tableData <- pfeOut()
+    tableData <- pfeOut()$PFEoutput
     tableData <- tableData[-dim(tableData)[1], ]
     tableData[, -1] <- round(tableData[, -1], 0)
     return(tableData)
@@ -428,7 +428,7 @@ server <- shinyServer(function(input, output, session) {
   output$pfePlot <- renderPlotly({
     if(input$goButton == 0)
       return()
-    plotData <- pfeOut()[-dim(pfeOut())[1],]
+    plotData <- pfeOut()$PFEoutput[-dim(pfeOut()$PFEoutput)[1],]
     plotData[, c('Potential_Collateral', 'Expected_Collateral')] <- -plotData[, c('Potential_Collateral', 'Expected_Collateral')]
     p <- plot_ly(
       plotData, x = ~Month, y = ~ PFE, name = "PFE", type = 'scatter', mode = 'lines+markers', color = I('red')
@@ -437,12 +437,24 @@ server <- shinyServer(function(input, output, session) {
       add_trace(y = ~ Expected_Collateral, name = "Expected Collateral", mode = 'lines', color = I('blue'))
   })
   
+  output$pwrCurveTbl <- renderTable({
+    if(input$goButton == 0)
+      return()
+    pfeOut()$pwroutput
+  })
+  
+  output$gasCurveTbl <- renderTable({
+    if(input$goButton == 0)
+      return()
+    pfeOut()$gasoutput
+  })
+  
   observe({
     volumes <- c("UserFolder" = "C:/")
     shinyFileSave(input, "save", roots=volumes, session=session)
     fileinfo <- parseSavePath(volumes, input$save)
     if(nrow(fileinfo) > 0){
-      write.csv(pfeOut(), as.character(fileinfo$datapath), row.names = FALSE)
+      write.csv(pfeOut()$PFEoutput, as.character(fileinfo$datapath), row.names = FALSE)
     }
   })
   
