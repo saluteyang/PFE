@@ -13,26 +13,26 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
                           Spread.Type.Off = NA){
   
   # input specific to the application (comment out in prod) ####
-  Forward.Volume = rep(100, 48)
-  Vanilla.Volume = rep(0, 48)
-  Vanilla.Strike = rep(0, 48)
-  Vanilla.Type = rep("CALL", 48)
-  Spread.Strike.On = rep(0, 16)
-  Spread.Strike.Off = rep(0, 16)
-  Spread.VOM.On = rep(0, 16)
-  Spread.VOM.Off = rep(0, 16)
-  Spread.Volume.On = rep(0, 16)
-  Spread.Volume.Off = rep(0, 16)
-  Spread.HR.On = rep(10, 16)
-  Spread.HR.Off = rep(10, 16)
-  Spread.Type.On = rep("CALL", 16)
-  Spread.Type.Off = rep("CALL", 16)
+  # Forward.Volume = rep(100, 48)
+  # Vanilla.Volume = rep(0, 48)
+  # Vanilla.Strike = rep(0, 48)
+  # Vanilla.Type = rep("CALL", 48)
+  # Spread.Strike.On = rep(0, 16)
+  # Spread.Strike.Off = rep(0, 16)
+  # Spread.VOM.On = rep(0, 16)
+  # Spread.VOM.Off = rep(0, 16)
+  # Spread.Volume.On = rep(0, 16)
+  # Spread.Volume.Off = rep(0, 16)
+  # Spread.HR.On = rep(10, 16)
+  # Spread.HR.Off = rep(10, 16)
+  # Spread.Type.On = rep("CALL", 16)
+  # Spread.Type.Off = rep("CALL", 16)
 
-  nsims <- 100
-  curve.date.begin <- '2017-06-01'
-  curve.date.end <- '2017-08-29'
-  end_date <- '2018-12-31'
-  marketcomponentstr <- 'ERCOT-ZONE H'
+  # nsims <- 100
+  # curve.date.begin <- '2017-06-01'
+  # curve.date.end <- '2017-08-29'
+  # end_date <- '2018-12-31'
+  # marketcomponentstr <- 'ERCOT-ZONE H'
   
   
   start_date <- promptmonth(curve.date.end) # this currently has to be the prompt month implied by curve.date.end
