@@ -462,7 +462,8 @@ server <- shinyServer(function(input, output, session) {
     curvebyregion.curvelist <- switch(input$curvebyregion,
                                       ERCOT  = c("ZONE H"),
                                       PJM = c("WESTRT"))
-    updateCheckboxGroupInput(session, "curvelist", choices = curvebyregion.curvelist)
+    updateCheckboxGroupInput(session, "curvelist", choices = curvebyregion.curvelist, 
+                             selected = curvebyregion.curvelist)
     
   })
   
