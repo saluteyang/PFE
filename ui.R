@@ -77,7 +77,7 @@ ui <- shinyUI(fluidPage(theme = shinytheme("cerulean"),
     helpText("Select the power curve underlying the power positions. Gas curve will
              default to NYMEX NG."),
     selectInput("curvebyregion", "Choose power region.",
-                c("ERCOT", "PJM"), selected = "ERCOT"),
+                c("ERCOT", "PJM", "MISO"), selected = "ERCOT"),
     checkboxGroupInput("curvelist", "Select specific curves of the region", choices = c("")),
     
     # A.4 number of forward simulations ####
@@ -93,6 +93,9 @@ ui <- shinyUI(fluidPage(theme = shinytheme("cerulean"),
     # D. save as csv file select output
     shinySaveButton("save", "Save table output", "save file as ...", 
                     filetype = list(csv = "csv")),
+    # temporary save for spread option
+    # shinySaveButton("save2", "Save spread option output", "save file as ...", 
+    #                 filetype = list(csv = "csv")),
     
     helpText("To clear positions and start a new calc, refresh web browser.")
     ),

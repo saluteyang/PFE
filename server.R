@@ -293,6 +293,8 @@ server <- shinyServer(function(input, output, session) {
   #   })
   
   # mapping positions
+  # make offpeak values come before onpeak as they are sorted alphabetically
+  # when the by-segment components are processed
   
   posOut <- reactive({
     if(input$goButton == 0){
@@ -302,28 +304,31 @@ server <- shinyServer(function(input, output, session) {
       # linear
       ForwardVolume <- c(
         values[["DF_GL"]]$MMBtu,
-        values[["DF_PLPK"]]$MWh,
-        values[["DF_PLFP"]]$MWh
+        values[["DF_PLFP"]]$MWh,
+        values[["DF_PLPK"]]$MWh
+
       )
       
       
       # vanilla
       VanillaVolume <- c(
         values[["DF_GV"]]$MMBtu,
-        values[["DF_PVPK"]]$MWh,
-        values[["DF_PVFP"]]$MWh
+        values[["DF_PVFP"]]$MWh,
+        values[["DF_PVPK"]]$MWh
+
       )
       
       VanillaStrike <- c(
         values[["DF_GV"]]$Strike,
-        values[["DF_PVPK"]]$Strike,
-        values[["DF_PVFP"]]$Strike
+        values[["DF_PVFP"]]$Strike,
+        values[["DF_PVPK"]]$Strike
       )
       
       VanillaType <- c(
         values[["DF_GV"]]$Type,
-        values[["DF_PVPK"]]$Type,
-        values[["DF_PVFP"]]$Type
+        values[["DF_PVFP"]]$Type,
+        values[["DF_PVPK"]]$Type
+
       )
       
       
@@ -458,10 +463,24 @@ server <- shinyServer(function(input, output, session) {
     }
   })
   
+  # temporary spread option output
+  # observe({
+  #   volumes <- c("UserFolder" = "C:/")
+  #   shinyFileSave(input, "save2", roots=volumes, session=session)
+  #   fileinfo <- parseSavePath(volumes, input$save2)
+  #   if(nrow(fileinfo) > 0){
+  #     write.csv(rbind.data.frame(pfeOut()$spreadpeak,
+  #                                pfeOut()$spreadoffpeak), 
+  #               as.character(fileinfo$datapath), row.names = FALSE)
+  #   }
+  # })
+  
+  
   observe({
     curvebyregion.curvelist <- switch(input$curvebyregion,
                                       ERCOT  = c("ZONE H"),
-                                      PJM = c("WESTRT"))
+                                      PJM = c("WESTRT"),
+                                      MISO = c("INDYRT"))
     updateCheckboxGroupInput(session, "curvelist", choices = curvebyregion.curvelist, 
                              selected = curvebyregion.curvelist)
     

@@ -47,11 +47,11 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   
   market <- unlist(strsplit(marketcomponentstr, '-'))[c(TRUE, FALSE)]
   component <- unlist(strsplit(marketcomponentstr, '-'))[c(FALSE, TRUE)]
-  numofmonth <- (as.yearmon(end_date) - as.yearmon(start_date))*12 + 1
+  numofmonth <- as.integer(round((as.yearmon(end_date) - as.yearmon(start_date))*12 + 1))
   # first forward month
   first.month <- start_date
   # forward delivery months included
-  month.used <- seq(as.Date(first.month), by = "month", length.out = as.integer(numofmonth))
+  month.used <- seq(as.Date(first.month), by = "month", length.out = numofmonth)
   end_date <- timeLastDayInMonth(end_date)
   
   
@@ -65,7 +65,12 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   
   pwr.curves <- melt(pwr.curves, id.vars = c('Date', 'Market', 'Component', 'Delmo'),
                      variable.name = 'Segment', value.name = 'Price') %>% filter(Segment != 'rtcPrice')
-  
+  # browser()
+  ## fudge section start ####
+  pwr.curves <- read_csv('P:/Risk/Risk - Risk Management/aa_Yang/Development/Temp R Input/miso_lagn_forPFE.csv')
+  pwr.curves <- pwr.curves %>% mutate(Date = as.Date(as.character(Date), "%Y%m%d"), 
+                                      Delmo = as.Date(as.character(Delmo), "%Y%m%d")) 
+  ## fudge section end ####
   ng.curve <- futures.fuel.query(f_curvedate = curve.date.begin, t_curvedate = curve.date.end,
                                  start_date = first.month, end_date = month.used[numofmonth],
                                  market = 'NYMEX', comp = 'NG') %>% rename(rtcPrice = Price)
@@ -95,6 +100,9 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   vol.fwd.app <- vol.fwd %>% filter(!MARKET %in% c('NYMEX ')) %>%
     mutate(VOLATILITY = VOLATILITY * 0.8, SEGMENT = 'op')
   vol.fwd <- rbind(vol.fwd, vol.fwd.app)
+  # reorder so it's natgas then power alphabetical (off before on)
+  vol.fwd <- vol.fwd %>% mutate(SEGMENT = factor(SEGMENT, levels = c('rtc', 'op', 'pk')))
+  vol.fwd <- vol.fwd[order(vol.fwd$SEGMENT), ]
   vol.fwd.out <- vol.fwd # saving for vol output
   
   # calculate instantanenous vol #####
@@ -114,26 +122,46 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
     (TV2EXP[n] - s)^2
   }
   
+  # browser()
+  
+  ## fill missing vols in the outer years ####
+  # vol.fwd.inst.append <- read_csv('P:/Risk/Risk - Risk Management/aa_Yang/Development/Temp R Input/fill_vol_forPFE.csv')
+  # vol.fwd.inst.append <- vol.fwd.inst.append %>% mutate(CURVEDATE = as.Date(CURVEDATE, '%m/%d/%Y'),
+  #                                                       DELMO = as.Date(DELMO, '%m/%d/%Y'))
+  # vol.fwd.inst <- rbind.data.frame(vol.fwd.inst, vol.fwd.inst.append)
+  # vol.fwd.inst <- vol.fwd.inst %>% mutate(SEGMENT = factor(SEGMENT, levels = c('rtc', 'op', 'pk')))
+  # vol.fwd.inst <- vol.fwd.inst[order(vol.fwd.inst$SEGMENT), ]
+  ## end of fill missing vols in the outer years ####
+  
+  ## replace power vols with calculated but not-yet-in-aligne numbers ####
+  vol.fwd.inst <- read_csv('P:/Risk/Risk - Risk Management/aa_Yang/Development/Temp R Input/fill_vol_forPFE_all.csv')
+  vol.fwd.inst <- vol.fwd.inst %>% mutate(CURVEDATE = as.Date(CURVEDATE, '%m/%d/%Y'),
+                                          DELMO = as.Date(DELMO, '%m/%d/%Y'))
+  vol.fwd.inst <- vol.fwd.inst %>% mutate(SEGMENT = factor(SEGMENT, levels = c('rtc', 'op', 'pk')))
+  vol.fwd.inst <- vol.fwd.inst[order(vol.fwd.inst$SEGMENT), ]
+  # browser()
+  
   vol.fwd.inst$TTE <- TTE[-length(TTE)] # cycling
   vol.fwd.inst$INCREM <-  INCREM[-length(INCREM)] #cycling
   vol.fwd.inst <- vol.fwd.inst %>%  mutate(TV2EXP = VOLATILITY * VOLATILITY * TTE,
                                            n = interval(ymd(first.month), ymd(DELMO)) %/% months(1))
-  numofcontracts <- dim(vol.fwd.inst)[1]
-  numofcommodity <- numofcontracts/numofmonth
+  numofcontracts <- as.integer(round(dim(vol.fwd.inst)[1]))
+  numofcommodity <- as.integer(round(numofcontracts/numofmonth))
   Alpha <- vector(mode = 'numeric', length = numofcommodity * numofmonth)
   
-  for (item in 1: (numofcommodity)){
-    TV2EXP <- vol.fwd.inst$TV2EXP[((item-1)*numofmonth+1):
-                                    ((item-1)*numofmonth+numofmonth)]
-    for (idx in 2:numofmonth){
-      Alpha[(item-1)*numofmonth+idx] <- nloptr(0.5, eval_f = objFunc, lb = 0, 
+  for (commodityitem in 0: (numofcommodity - 1)){
+    TV2EXP <- vol.fwd.inst$TV2EXP[(commodityitem*numofmonth+1):
+                                    (commodityitem*numofmonth+numofmonth)]
+    for (monthitem in 2:numofmonth){
+      Alpha[commodityitem*numofmonth+monthitem] <- nloptr(0.5, eval_f = objFunc, lb = 0, 
                                                opts = list("algorithm"="NLOPT_LN_COBYLA", "xtol_rel"=1.0e-6), 
-                                               n = idx, # expire at ith month
+                                               n = monthitem, # expire at ith month
                                                TV2EXP = TV2EXP, Beta = Beta, Gamma = Gamma, 
                                                tte = TTE, increm = INCREM)$solution
       
     }
   }
+  
   vol.fwd.inst <- cbind.data.frame(vol.fwd.inst, Alpha)
   
   
@@ -141,22 +169,22 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   VolIns <- matrix(data = 0, nrow = dim(curves.comb.cor)[1], ncol = numofmonth)
   avgVol <- matrix(data = 0, nrow = dim(curves.comb.cor)[1], ncol = numofmonth)
   
+  # browser()
   
-  for (k in 1:numofcommodity){
-    VolIns[(1+(k-1)*numofmonth),1] <- vol.fwd.inst$VOLATILITY[1+(k-1)*numofmonth]
+  for (commodityitem in 0:(numofcommodity-1)){
+    VolIns[(1+commodityitem*numofmonth),1] <- vol.fwd.inst$VOLATILITY[1+commodityitem*numofmonth]
     
-    for (i in 2:numofmonth){
-      for (j in 1:i){
-        VolIns[((k-1)*numofmonth)+i,j] <- Alpha[(k-1)*numofmonth+i]*exp(-Beta*(TTE[i]-TTE[j])) + Gamma
+    for (monthitem in 2:numofmonth){
+      for (j in 1:monthitem){
+        VolIns[commodityitem*numofmonth+monthitem,j] <- Alpha[commodityitem*numofmonth+monthitem]*exp(-Beta*(TTE[monthitem]-TTE[j])) + Gamma
       }
     }
   }
-  
-  for (k in 1:(numofmonth-1)){
-    for (m in 1:numofcommodity){
-      TimeInterval <- TTE - TTE[k]
-      temp <- (VolIns[(k+1+(m-1)*numofmonth):(m*numofmonth), (k+1):numofmonth]^2) %*% INCREM[(k+1):numofmonth]
-      avgVol[(k+1+(m-1)*numofmonth):(m*numofmonth),k] <- sqrt(temp/TimeInterval[(k+1):numofmonth])
+  for (commodityitem in 0:(numofcommodity-1)){
+    for (monthitem in 2:numofmonth){
+      TimeInterval <- TTE - TTE[monthitem-1]
+      temp <- (VolIns[(monthitem+commodityitem*numofmonth):((commodityitem+1)*numofmonth), monthitem:numofmonth]^2) %*% INCREM[monthitem:numofmonth]
+      avgVol[(commodityitem*numofmonth+monthitem):((commodityitem+1)*numofmonth), (monthitem-1)] <- sqrt(temp/TimeInterval[monthitem:numofmonth])
     }
   }
   
@@ -173,6 +201,7 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
     curves.comb.cor <- matrix(Matrix::nearPD(curves.comb.cor, corr = TRUE)$mat@x,
                               nrow = numofcontracts)
   }
+  # browser()
   dw <- t(cbind(rndOrig, rndAnti))  %*% chol(curves.comb.cor)
   for (i in 1:numofcontracts){
     pathForward[,1,i] <- unlist(price.fwd, use.names = FALSE)[i] * exp(-0.5* VolIns[i,1]^2 *INCREM[1] + sqrt(INCREM[1])*dw[,i]*VolIns[i,1] )
@@ -200,11 +229,11 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   }
   
   # The value of options that expire later follows the closed-form formula
-  for (m in 1:numofcommodity){        
+  for (commodityitem in 0:(numofcommodity-1)){        
     for (k in 1:(numofmonth-1)){        
       for (i in (k+1):numofmonth){      
         TimeRemain <- TTE[i] - TTE[k]
-        pos <- (m-1)*numofmonth + i              
+        pos <- commodityitem*numofmonth + i              
         sigma <- avgVol[pos,k]   
         
         pathVanilla[,k,pos] <- BlackScholes(pathForward[,k,pos], Vanilla.Strike[pos], 0, 
@@ -212,7 +241,7 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
       }  
       
       i <- k  # i is the expiration month
-      pos <- (m-1)*numofmonth + i
+      pos <- commodityitem*numofmonth + i
       pathVanilla[,i,pos] <- Payoff_Vanilla(pathForward[,i,pos], Vanilla.Strike[pos], Vanilla.Type[pos]) 
     }
   }
@@ -221,14 +250,6 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   
   Spread.Corr <- matrix(data = 0, nrow = numofmonth, ncol = 2)
   curves.comb.cor.cross <- curves.comb.cor[(numofmonth+1):dim(curves.comb.cor)[1], 1:numofmonth]
-
-  # for (j in 3:numofcommodity){
-  #   for (i in 1:numofmonth){
-  #     Spread.Corr[(j-3)*numofmonth+i,1] <- curves.comb.cor.cross[i,(j-1)*numofmonth+i]
-  #     Spread.Corr[(j-3)*numofmonth+i,2] <- curves.comb.cor.cross[(i + numofmonth),(j-1)*numofmonth+i]
-  #     
-  #   }
-  # }
   
   for (j in 1:(numofcommodity - 1)){
     for (i in 1:numofmonth){
@@ -237,83 +258,77 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
     }
   }
   
-  for (j in 3:numofcommodity){ 
-    for (i in 1:numofmonth){    
-      pos <- (j-1)*numofmonth + i
-      pos2 <- (j-3)*numofmonth + i
-      # s1.offpeak <- unlist(price.fwd, use.names = FALSE)[i]
-      # s1.peak <- unlist(price.fwd, use.names = FALSE)[i + numofmonth]
-      # s2 <- unlist(price.fwd, use.names = FALSE)[pos]
+  for (i in 1:numofmonth){
+
+    s2 <- unlist(price.fwd, use.names = FALSE)[i]
+    s1.peak <- unlist(price.fwd, use.names = FALSE)[i + 2*numofmonth]
+    s1.offpeak <- unlist(price.fwd, use.names = FALSE)[i + numofmonth]
+    
+    sig2 <- vol.fwd.inst$VOLATILITY[i]
+    sig1.peak <- vol.fwd.inst$VOLATILITY[i + 2*numofmonth]
+    sig1.offpeak <- vol.fwd.inst$VOLATILITY[i + numofmonth]
+
+    
+    Option_0.Spread.offpeak[2*numofmonth + i] <- improvedPearson(s1.offpeak, s2, sig1.offpeak, sig2, Spread.Corr[i,2], Spread.VOM.Off[i],
+                                                    Spread.HR.Off[i], TTE[i], Spread.Type.Off[i], 0)
+    
+    Option_0.Spread.peak[2*numofmonth + i] <- improvedPearson(s1.peak, s2, sig1.peak, sig2, Spread.Corr[i,1], Spread.VOM.On[i],
+                                                  Spread.HR.On[i], TTE[i], Spread.Type.On[i], 0)
+    
+  }
+  
+  for (k in 1:(numofmonth-1)){   
+    for (i in (k+1):numofmonth){  
+      TimeRemain <- TTE[i] - TTE[k]
+       
+      sig2 <- avgVol[i,k]
+      sig1.peak <- avgVol[i + 2*numofmonth,k]
+      sig1.offpeak <- avgVol[i + numofmonth,k]
       
-      s2 <- unlist(price.fwd, use.names = FALSE)[i]
-      s1.peak <- unlist(price.fwd, use.names = FALSE)[i + numofmonth]
-      s1.offpeak <- unlist(price.fwd, use.names = FALSE)[pos]
       
-      # sig1.offpeak <- vol.fwd.inst$VOLATILITY[i]
-      # sig1.peak <- vol.fwd.inst$VOLATILITY[i + numofmonth]
-      # sig2 <- vol.fwd.inst$VOLATILITY[pos]
+      s2 <- pathForward[,k,i]
+      s1.peak <- pathForward[,k,i + 2*numofmonth]
+      s1.offpeak <- pathForward[,k,i + numofmonth]
       
-      sig2 <- vol.fwd.inst$VOLATILITY[i]
-      sig1.peak <- vol.fwd.inst$VOLATILITY[i + numofmonth]
-      sig1.offpeak <- vol.fwd.inst$VOLATILITY[pos]
+      pathSpreadOff[,k,2*numofmonth + i ] <- improvedPearson(s1.offpeak,s2,sig1.offpeak,sig2,Spread.Corr[i,2],Spread.VOM.Off[i],
+                                                           Spread.HR.Off[i],TimeRemain,Spread.Type.Off[i], 0)
       
-      # Option_0.Spread.offpeak[pos] <- improvedPearson(s1.offpeak, s2, sig1.offpeak, sig2, Spread.Corr[pos2,1], Spread.VOM[pos2,1],
-      #                                                  Spread.HR[pos2,1], Time2Expr[i], Spread.Type[pos2,1], r_0)
-      # 
-      # Option_0.Spread.peak[pos] <- improvedPearson(s1.peak, s2, sig1.peak, sig2, Spread.Corr[pos2,2], Spread.VOM[pos2,2],
-      #                                               Spread.HR[pos2,2], Time2Expr[i], Spread.Type[pos2,2], r_0)
-      
-      Option_0.Spread.offpeak[pos] <- improvedPearson(s1.offpeak, s2, sig1.offpeak, sig2, Spread.Corr[pos2,2], Spread.VOM.Off[pos2],
-                                                      Spread.HR.Off[pos2], TTE[i], Spread.Type.Off[pos2], 0)
-      
-      Option_0.Spread.peak[pos] <- improvedPearson(s1.peak, s2, sig1.peak, sig2, Spread.Corr[pos2,1], Spread.VOM.On[pos2],
-                                                    Spread.HR.On[pos2], TTE[i], Spread.Type.On[pos2], 0)
-      
+      pathSpreadOn[,k,2*numofmonth + i ] <- improvedPearson(s1.peak,s2,sig1.peak,sig2,Spread.Corr[i,1],Spread.VOM.On[i],
+                                                        Spread.HR.On[i],TimeRemain,Spread.Type.On[i],0)
     }
+    
+    i <- k  # i is the expiration month
+    pathSpreadOff[,i,2*numofmonth + i ] <- Payoff_Spread(pathForward[,i,i], pathForward[,i, 2*numofmonth + i ],
+                                                       Spread.VOM.Off[i], Spread.HR.Off[i],Spread.Type.Off[i] )
+    pathSpreadOn[,k,2*numofmonth + i ] <- Payoff_Spread(pathForward[,i,(i + numofmonth)], pathForward[,i, i],
+                                                    Spread.VOM.On[i], Spread.HR.On[i],Spread.Type.On[i] )
   }
   
   
-  
-  for (m in 3:numofcommodity){
-    for (k in 1:(numofmonth-1)){   
-      for (i in (k+1):numofmonth){  
-        TimeRemain <- TTE[i] - TTE[k]
-        pos <- (m-1)*numofmonth + i          
-        pos2 <- (m-3)*numofmonth +i
-        # sig1.offpeak <- avgVol[i,k]
-        # sig1.peak <- avgVol[(i + numofmonth),k]
-        # sig2 <- avgVol[pos,k]
-        
-        sig2 <- avgVol[i,k]
-        sig1.peak <- avgVol[(i + numofmonth),k]
-        sig1.offpeak <- avgVol[pos,k]
-        
-        # s1.offpeak <- pathForward[,k,i]
-        # s1.peak <- pathForward[,k,(i + numofmonth)]
-        # s2 <- pathForward[,k,pos]
-        
-        s2 <- pathForward[,k,i]
-        s1.peak <- pathForward[,k,(i + numofmonth)]
-        s1.offpeak <- pathForward[,k,pos]
-        
-        pathSpreadOff[,k,pos] <- improvedPearson(s1.offpeak,s2,sig1.offpeak,sig2,Spread.Corr[pos2,2],Spread.VOM.Off[pos2],
-                                                             Spread.HR.Off[pos2],TimeRemain,Spread.Type.Off[pos2], 0)
-        
-        pathSpreadOn[,k,pos] <- improvedPearson(s1.peak,s2,sig1.peak,sig2,Spread.Corr[pos2,1],Spread.VOM.On[pos2],
-                                                          Spread.HR.On[pos2],TimeRemain,Spread.Type.On[pos2],0)
-      }
-      
-      i <- k  # i is the expiration month
-      pos <- (m-1)*numofmonth + i
-      pos2 <- (m-3)*numofmonth +i
-      pathSpreadOff[,i,pos] <- Payoff_Spread(pathForward[,i,i], pathForward[,i, pos],
-                                                         Spread.VOM.Off[pos2], Spread.HR.Off[pos2],Spread.Type.Off[pos2] )
-      pathSpreadOn[,k,pos] <- Payoff_Spread(pathForward[,i,(i + numofmonth)], pathForward[,i, pos2],
-                                                      Spread.VOM.On[pos2], Spread.HR.On[pos2],Spread.Type.On[pos2] )
-      
-    }
-  }
-  
+  ## temporary, to extract by path values ####
+  # newpathSpreadOn <- matrix(data = NA, nrow = 1000, ncol = 90)
+  # newpathSpreadOff <- matrix(data = NA, nrow = 1000, ncol = 90)
+  # for (i in 1:1000){
+  #   temp <- pathSpreadOn[i, , ]
+  #   newpathSpreadOn[i, ] <- diag(temp[, colSums(is.na(temp)) < nrow(temp)])
+  # } 
+  # 
+  # browser()
+  # 
+  # for (i in 1:1000){
+  #   temp <- pathSpreadOff[i, , ]
+  #   temp <- temp[, colSums(is.na(temp)) < nrow(temp)]
+  #   for (j in 1:89){
+  #     newpathSpreadOff[i, j] <- temp[j,  j + 1]
+  #   }
+  #   
+  # } 
+  # 
+  # write.csv(newpathSpreadOn, file = 'P:/Risk/Risk - Risk Management/aa_Yang/Development/Temp R Output/spreadon.csv',
+  #           row.names = FALSE)
+  # write.csv(newpathSpreadOff, file = 'P:/Risk/Risk - Risk Management/aa_Yang/Development/Temp R Output/spreadoff.csv',
+  #           row.names = FALSE)
+
   # PFE Calculation ####
   
   MtmPath <- matrix(data = 0, nrow = nsims, ncol = numofmonth)
@@ -333,15 +348,12 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
           Vanilla.Volume[pos]*(pathVanilla[,i,pos] - Option_0.Vanilla[pos])
       }
     }
-    
-    for (m in 3:numofcommodity){
+      
+      # add spread options
       for (k in (i+1):numofmonth){
-        pos <- (m-1)*numofmonth + k
-        pos2 <- (m-3)*numofmonth + k
-        MtmPath[,i] <- MtmPath[,i] + Spread.Volume.Off[pos2]*(pathSpreadOff[,i,pos] - Option_0.Spread.offpeak[pos]) + 
-          Spread.Volume.On[pos2]*(pathSpreadOn[,i,pos] - Option_0.Spread.peak[pos])
+        MtmPath[,i] <- MtmPath[,i] + Spread.Volume.Off[k]*(pathSpreadOff[,i,2*numofmonth+k] - Option_0.Spread.offpeak[2*numofmonth+k]) + 
+          Spread.Volume.On[k]*(pathSpreadOn[,i,2*numofmonth+k] - Option_0.Spread.peak[2*numofmonth+k])
       }
-    }
   }
   
   tempMtm <- matrix(data = NA, nrow = nsims, ncol = 1)
@@ -349,9 +361,7 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   
   for (i in 1:numofmonth){
     tempMtm <- MtmPath[,i]
-    # tempReal <- RealizedPath[,i]
     tempMtm <- sort(tempMtm)
-    # tempReal <- sort(tempReal)
     
     PFE.Exposure.Mtm[i] <- max(tempMtm[as.integer(nsims*conf)], 0)
     PFE.Collateral.Mtm[i] <- max(-tempMtm[as.integer(nsims*(1-conf))],0)
@@ -387,6 +397,7 @@ PFESimWrapper <- function(nsims = 100, curve.date.begin = NA, curve.date.end = N
   gasoutput$Delmo <- as.character(gasoutput$Delmo)
   
   return(list(PFEoutput = PFEoutput, pwroutput = pwroutput, gasoutput = gasoutput))
+  
 }
 
 
